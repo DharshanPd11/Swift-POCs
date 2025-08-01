@@ -8,93 +8,65 @@
 import SwiftUI
 import MapKit
 
-
-struct ETAFloatingView: View {
-    let etaMinutes: Int
-
-    var body: some View {
-        Text("ETA to HQ: \(etaMinutes) min")
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-            .glassEffect()
-            .foregroundColor(.black)
-            .font(.system(size: 14))
-            .overlay(
-                RoundedRectangle(cornerRadius: 10)
-                    .stroke(Color.black, lineWidth: 0.5)
-            )
-            .cornerRadius(10)
-            .shadow(radius: 2)
-    }
-}
-
-class Coordinator: NSObject, MKMapViewDelegate {
+class Coordinator: NSObject {
     private var routeColors: [MKPolyline: UIColor] = [:]
     private var colorIndex = 0
     private let colors: [UIColor] = [.systemBlue, .systemRed, .systemGreen, .systemOrange, .systemPurple, .systemTeal]
     
-    var floatingView: UIView?
-    var selectedAnnotation: MKAnnotation?
-    let locationManager = CLLocationManager()
+    private var selectedAnnotation: MKAnnotation?
+    private let locationManager = CLLocationManager()
     private var destinationCoordinate: CLLocationCoordinate2D?
-    var floatingViewHostingController: UIHostingController<ETAFloatingView>?
+    private var floatingViewHostingController: UIHostingController<ETAFloatingView>?
+    
+    private var sources: [CLLocationCoordinate2D: UIView] = [:]
 
     init(destination: CLLocationCoordinate2D) {
         self.destinationCoordinate = destination
     }
-    
-    func mapView(_ mapView: MKMapView, didSelect view: MKAnnotationView) {
-        floatingView?.removeFromSuperview()
-        
-        selectedAnnotation = view.annotation
-        guard let destinationCoordinate, let sourceCoordinate = view.annotation?.coordinate else { return }
-        
-        let request = MKDirections.Request()
-        request.source = MKMapItem(placemark: MKPlacemark(coordinate: sourceCoordinate))
-        request.destination = MKMapItem(placemark: MKPlacemark(coordinate: destinationCoordinate))
-        request.transportType = .automobile
-        
-        let directions = MKDirections(request: request)
-        directions.calculate { [weak self] response, error in
-            guard let self = self,
-                  let route = response?.routes.first else { return }
-            
-            let etaMinutes = Int(route.expectedTravelTime / 60)
-            let etaSwiftUIView = ETAFloatingView(etaMinutes: etaMinutes)
-            let hostingController = UIHostingController(rootView: etaSwiftUIView)
-            let etaView = hostingController.view!
 
-            etaView.backgroundColor = .clear
-            etaView.frame = CGRect(x: 0, y: 0, width: 160, height: 40)
-
-            mapView.addSubview(etaView)
-            self.floatingView = etaView
-            self.updateFloatingViewPosition(mapView)
-            self.floatingViewHostingController = hostingController
-
+    func updateFloatingViewsPosition(_ mapView: MKMapView) {
+        guard !sources.isEmpty else { return }
+        for source in sources {
+            let floatingView = source.value
+            let point = mapView.convert(source.key, toPointTo: mapView)
+            floatingView.center = CGPoint(x: point.x, y: point.y + 50) // adjust offset as needed
         }
     }
-
-    func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
-        updateFloatingViewPosition(mapView)
-    }
-
-    func updateFloatingViewPosition(_ mapView: MKMapView) {
-        guard let annotation = selectedAnnotation,
-              let floatingView = floatingView else { return }
-        
-        let point = mapView.convert(annotation.coordinate, toPointTo: mapView)
-        floatingView.center = CGPoint(x: point.x, y: point.y - 50) // adjust offset as needed
-    }
-
-    func mapView(_ mapView: MKMapView, didDeselect view: MKAnnotationView) {
-        floatingView?.removeFromSuperview()
-        floatingView = nil
-        selectedAnnotation = nil
-    }
-
     
-    func addRoute(from source: CLLocationCoordinate2D, to destination: CLLocationCoordinate2D, on mapView: MKMapView) {
+    private func hideFloatingViews() {
+        guard !sources.isEmpty else { return }
+        for source in sources {
+            let floatingView = source.value
+            UIView.animate(withDuration: 0.25, animations: {
+                floatingView.alpha = 0
+                floatingView.isHidden = true
+            })
+        }
+    }
+    
+    private func showFloatingViews() {
+        guard !sources.isEmpty else { return }
+        for source in sources {
+            UIView.animate(withDuration: 0.25, animations: {
+                let floatingView = source.value
+                floatingView.isHidden = false
+                UIView.animate(withDuration: 0.25) {
+                    floatingView.alpha = 1
+                }
+            })
+        }
+    }
+    
+    func addRoutes(from sources: [CLLocationCoordinate2D], to destination: CLLocationCoordinate2D, on mapView: MKMapView) {
+        for source in sources {
+            let annotation = MKPointAnnotation()
+            annotation.coordinate = source
+            mapView.addAnnotation(annotation)
+            addRoute(from: source, to: destination, on: mapView)
+        }
+    }
+    
+    private func addRoute(from source: CLLocationCoordinate2D, to destination: CLLocationCoordinate2D, on mapView: MKMapView) {
         let request = MKDirections.Request()
         request.source = MKMapItem(placemark: MKPlacemark(coordinate: source))
         request.destination = MKMapItem(placemark: MKPlacemark(coordinate: destination))
@@ -128,16 +100,59 @@ class Coordinator: NSObject, MKMapViewDelegate {
                 let etaView = hostingController.view!
                 
                 etaView.backgroundColor = .clear
-                etaView.frame = CGRect(x: 0, y: 0, width: 160, height: 40)
+                let point = mapView.convert(source, toPointTo: mapView)
+                etaView.frame = CGRect(x: point.x-80, y: point.y+20, width: 160, height: 40)
                 
                 mapView.addSubview(etaView)
-                self.floatingView = etaView
-                self.updateFloatingViewPosition(mapView)
+                self.updateFloatingViewsPosition(mapView)
                 self.floatingViewHostingController = hostingController
+                
+                self.sources[source] = etaView
             }
         }
     }
+}
 
+extension Coordinator: MKMapViewDelegate{
+    
+    func mapView(_ mapView: MKMapView, didSelect view: MKAnnotationView) {
+        selectedAnnotation = view.annotation
+        guard let destinationCoordinate, let sourceCoordinate = view.annotation?.coordinate else { return }
+        
+        let request = MKDirections.Request()
+        request.source = MKMapItem(placemark: MKPlacemark(coordinate: sourceCoordinate))
+        request.destination = MKMapItem(placemark: MKPlacemark(coordinate: destinationCoordinate))
+        request.transportType = .automobile
+        
+        let directions = MKDirections(request: request)
+        directions.calculate { [weak self] response, error in
+            guard let self = self,
+                  let route = response?.routes.first else { return }
+            
+            let etaMinutes = Int(route.expectedTravelTime / 60)
+            let etaSwiftUIView = ETAFloatingView(etaMinutes: etaMinutes)
+            let hostingController = UIHostingController(rootView: etaSwiftUIView)
+            let etaView = hostingController.view!
+
+            etaView.backgroundColor = .clear
+            etaView.frame = CGRect(x: 0, y: 0, width: 160, height: 40)
+
+            mapView.addSubview(etaView)
+            self.updateFloatingViewsPosition(mapView)
+            self.floatingViewHostingController = hostingController
+
+        }
+    }
+
+    func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
+        showFloatingViews()
+        updateFloatingViewsPosition(mapView)
+    }
+    
+    func mapViewDidChangeVisibleRegion(_ mapView: MKMapView){
+        hideFloatingViews()
+    }
+    
     func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
         guard let polyline = overlay as? MKPolyline else {
             return MKOverlayRenderer(overlay: overlay)
@@ -170,7 +185,24 @@ class Coordinator: NSObject, MKMapViewDelegate {
         return annotationView
     }
 
+    func mapView(_ mapView: MKMapView, didDeselect view: MKAnnotationView) {
+//        floatingView?.removeFromSuperview()
+//        floatingView = nil
+        selectedAnnotation = nil
+    }
 }
+
 #Preview{
     RouteContentView()
+}
+
+extension CLLocationCoordinate2D:  @retroactive Hashable {
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(latitude)
+        hasher.combine(longitude)
+    }
+
+    public static func == (lhs: CLLocationCoordinate2D, rhs: CLLocationCoordinate2D) -> Bool {
+        return lhs.latitude == rhs.latitude && lhs.longitude == rhs.longitude
+    }
 }

@@ -16,13 +16,7 @@ struct SourceToDestinationRouteView: UIViewRepresentable {
         let mapView = MKMapView()
         mapView.delegate = context.coordinator
         
-        for source in sources {
-            let annotation = MKPointAnnotation()
-            annotation.coordinate = source
-            mapView.addAnnotation(annotation)
-            
-            context.coordinator.addRoute(from: source, to: destination, on: mapView)
-        }
+        context.coordinator.addRoutes(from: sources, to: destination, on: mapView)
         
         let allCoordinates = sources + [destination]
         var zoomRect = MKMapRect.null

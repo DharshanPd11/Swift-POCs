@@ -70,6 +70,25 @@ struct MapContentView: View {
     }
 }
 
+struct ETAFloatingView: View {
+    let etaMinutes: Int
+
+    var body: some View {
+        Text("ETA to HQ: \(etaMinutes) min")
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .glassEffect()
+            .foregroundColor(.black)
+            .font(.system(size: 14))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(Color.black, lineWidth: 0.5)
+            )
+            .cornerRadius(10)
+            .shadow(radius: 2)
+    }
+}
+
 #Preview {
     MapContentView()
 }
