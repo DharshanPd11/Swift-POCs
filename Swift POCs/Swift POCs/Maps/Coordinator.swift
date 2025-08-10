@@ -70,7 +70,8 @@ class Coordinator: NSObject {
         let request = MKDirections.Request()
         request.source = MKMapItem(placemark: MKPlacemark(coordinate: source))
         request.destination = MKMapItem(placemark: MKPlacemark(coordinate: destination))
-        request.transportType = .any
+        request.transportType = .automobile
+        request.requestsAlternateRoutes = true
         
         MKDirections(request: request).calculate { response, error in
             guard let route = response?.routes.first else { return }
@@ -92,7 +93,7 @@ class Coordinator: NSObject {
             let directions = MKDirections(request: request)
             directions.calculate { [weak self] response, error in
                 guard let self = self,
-                      let route = response?.routes.first else { return }
+                      let route = response?.routes.min(by: { $0.expectedTravelTime < $1.expectedTravelTime }) else { return }
                 
                 let etaMinutes = Int(route.expectedTravelTime / 60)
                 let etaSwiftUIView = ETAFloatingView(etaMinutes: etaMinutes)
